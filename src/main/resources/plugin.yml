@@ -1,0 +1,7 @@
+name: rtpportal
+version: '1.0-SNAPSHOT'
+main: com.omdmrotat.rtpportal.RTPPortal
+api-version: '1.21'
+depend: [WorldGuard]
+softdepend: [PlaceholderAPI, CombatLogX]
+folia-supported: true

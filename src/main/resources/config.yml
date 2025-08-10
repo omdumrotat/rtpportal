@@ -1,0 +1,62 @@
+# The name of the WorldGuard region that will act as the portal.
+region-name: "portal_rtp"
+
+# Teleport timer settings
+teleport-timer: 30
+
+# CombatLogX Integration Settings
+combatlogx:
+  # Whether to prevent teleportation of players who are in combat
+  prevent-combat-teleport: true
+  # Message to send to players in combat when they can't be teleported
+  combat-message: "&cYou cannot be teleported while in combat!"
+  # Whether to remove players from the portal when they're in combat
+  # true = players in combat are removed from portal (must re-enter to try again)
+  # false = players in combat stay in portal and can teleport once combat ends
+  remove-combat-players: false
+
+# The coordinates for the random teleport.
+teleport-bounds:
+  world: "world"
+  x:
+    min: -1000
+    max: 1000
+  z:
+    min: -1000
+    max: 1000
+
+# The player will only be teleported if the block they land on is one of these types.
+safe-block-types:
+  - STONE
+  - DIRT
+  - GRASS_BLOCK
+  - SAND
+
+# Water/Liquid detection settings to prevent teleporting into dangerous areas
+water-detection:
+  # Whether to prevent teleporting into areas with too much water/lava
+  enabled: true
+  # Radius around the teleport location to check for liquids (in blocks)
+  check-radius: 3
+  # Maximum percentage of liquid blocks (water/lava) allowed in the check area (0.0 to 1.0)
+  # 0.3 = 30% liquid blocks allowed, 0.0 = no liquids allowed
+  max-water-percentage: 0.3
+  # Whether to check for liquids above the teleport location (prevents underwater caves/lava pockets)
+  check-above: true
+  # How many blocks above to check for liquids
+  check-above-height: 5
+  # Whether to avoid ocean biomes entirely
+  avoid-ocean-biomes: true
+
+# Performance optimization settings
+optimization:
+  # Number of locations to try finding simultaneously (higher = faster but more CPU intensive)
+  batch-size: 5
+  # Maximum attempts per batch before giving up
+  max-batch-attempts: 10
+  # Whether to use smart height scanning (starts from surface level instead of max height)
+  smart-height-scan: true
+  # Whether to pre-filter locations based on biome before detailed checking
+  biome-prefilter: true
+  # Whether to use sequential processing (safer for Folia, but slower)
+  sequential-processing: true
