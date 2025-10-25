@@ -1,22 +1,27 @@
 package com.omdmrotat.rtpportal;
 
-import io.papermc.paper.threadedregions.scheduler.RegionScheduler;
-import net.kyori.adventure.text.Component;
-import net.kyori.adventure.text.format.NamedTextColor;
-import net.kyori.adventure.title.Title;
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.stream.Collectors;
+
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.World;
 import org.bukkit.block.Biome;
-import org.bukkit.block.Block;
 import org.bukkit.entity.Player;
 
-import java.time.Duration;
-import java.util.*;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ThreadLocalRandom;
-import java.util.stream.Collectors;
+import io.papermc.paper.threadedregions.scheduler.RegionScheduler;
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.title.Title;
 
 public class TeleportManager {
 
@@ -100,35 +105,59 @@ public class TeleportManager {
         Set<UUID> playersToTeleport = new HashSet<>(playerUUIDs);
         playerUUIDs.clear();
 
-        ConfigManager cfg = plugin.getConfigManager();
-        World world = Bukkit.getWorld(cfg.getWorldName());
-        if (world == null) {
-            plugin.getLogger().severe("World '" + cfg.getWorldName() + "' not found!");
-            return;
+        // Group players by their region
+        Map<String, Set<UUID>> playersByRegion = new HashMap<>();
+        for (UUID playerUUID : playersToTeleport) {
+            String regionName = plugin.getPlayerRegion(playerUUID);
+            if (regionName != null) {
+                playersByRegion.computeIfAbsent(regionName, k -> new HashSet<>()).add(playerUUID);
+            }
         }
 
-        findLocationsBatch(world, playersToTeleport, 0);
+        // Process each region separately
+        for (Map.Entry<String, Set<UUID>> entry : playersByRegion.entrySet()) {
+            String regionName = entry.getKey();
+            Set<UUID> players = entry.getValue();
+            
+            ConfigManager.WorldRTPConfig worldConfig = plugin.getConfigManager().getWorldConfigByRegion(regionName);
+            if (worldConfig == null) {
+                plugin.getLogger().severe("No world config found for region: " + regionName);
+                continue;
+            }
+
+            World world = Bukkit.getWorld(worldConfig.getWorldName());
+            if (world == null) {
+                plugin.getLogger().severe("World '" + worldConfig.getWorldName() + "' not found!");
+                continue;
+            }
+
+            findLocationsBatch(world, worldConfig, players, 0);
+        }
     }
 
     /**
      * Optimized batch location finding using parallel processing
      */
-    private void findLocationsBatch(World world, Set<UUID> playersToTeleport, int batchAttempt) {
+    private void findLocationsBatch(World world, ConfigManager.WorldRTPConfig worldConfig, 
+                                   Set<UUID> playersToTeleport, int batchAttempt) {
         long startTime = System.currentTimeMillis();
         ConfigManager cfg = plugin.getConfigManager();
-        int batchSize = cfg.getBatchSize();
-        int maxBatchAttempts = cfg.getMaxBatchAttempts();
+        
+        // Nether-specific optimizations: reduce batch size and attempts for better performance
+        boolean isNether = world.getEnvironment() == World.Environment.NETHER;
+        int batchSize = isNether ? Math.min(3, cfg.getBatchSize()) : cfg.getBatchSize();
+        int maxBatchAttempts = isNether ? Math.min(5, cfg.getMaxBatchAttempts()) : cfg.getMaxBatchAttempts();
 
         if (batchAttempt >= maxBatchAttempts) {
             plugin.getLogger().severe("Could not find a safe teleport location after " + maxBatchAttempts + " batch attempts!");
             return;
         }
 
-        // Generate multiple candidate locations
-        List<LocationCandidate> candidates = generateLocationCandidates(world, batchSize);
+        // Generate multiple candidate locations using worldConfig bounds
+        List<LocationCandidate> candidates = generateLocationCandidates(worldConfig, batchSize);
 
-        // Pre-filter candidates based on biome if enabled
-        if (cfg.isBiomePrefilter() && cfg.isWaterDetectionEnabled() && cfg.isAvoidOceanBiomes()) {
+        // Pre-filter candidates based on biome if enabled (skip for Nether as ocean biomes don't apply)
+        if (!isNether && cfg.isBiomePrefilter() && cfg.isWaterDetectionEnabled() && cfg.isAvoidOceanBiomes()) {
             candidates = candidates.stream()
                     .filter(candidate -> !isOceanBiomeCached(world, candidate.x, candidate.z))
                     .collect(Collectors.toList());
@@ -136,24 +165,23 @@ public class TeleportManager {
 
         if (candidates.isEmpty()) {
             plugin.getLogger().info("All candidates filtered out by biome check, retrying...");
-            findLocationsBatch(world, playersToTeleport, batchAttempt + 1);
+            findLocationsBatch(world, worldConfig, playersToTeleport, batchAttempt + 1);
             return;
         }
 
         // Process candidates using Folia's region scheduler for thread safety
-        processCandidatesSequentially(world, candidates, playersToTeleport, batchAttempt, startTime, 0);
+        processCandidatesSequentially(world, worldConfig, candidates, playersToTeleport, batchAttempt, startTime, 0);
     }
 
     /**
-     * Generate random location candidates
+     * Generate random location candidates using world-specific bounds
      */
-    private List<LocationCandidate> generateLocationCandidates(World world, int count) {
-        ConfigManager cfg = plugin.getConfigManager();
+    private List<LocationCandidate> generateLocationCandidates(ConfigManager.WorldRTPConfig worldConfig, int count) {
         List<LocationCandidate> candidates = new ArrayList<>();
 
         for (int i = 0; i < count; i++) {
-            int x = ThreadLocalRandom.current().nextInt(cfg.getMinX(), cfg.getMaxX() + 1);
-            int z = ThreadLocalRandom.current().nextInt(cfg.getMinZ(), cfg.getMaxZ() + 1);
+            int x = ThreadLocalRandom.current().nextInt(worldConfig.getMinX(), worldConfig.getMaxX() + 1);
+            int z = ThreadLocalRandom.current().nextInt(worldConfig.getMinZ(), worldConfig.getMaxZ() + 1);
             candidates.add(new LocationCandidate(x, z));
         }
 
@@ -163,13 +191,14 @@ public class TeleportManager {
     /**
      * Process candidates sequentially using region scheduler for thread safety
      */
-    private void processCandidatesSequentially(World world, List<LocationCandidate> candidates,
+    private void processCandidatesSequentially(World world, ConfigManager.WorldRTPConfig worldConfig,
+                                             List<LocationCandidate> candidates,
                                              Set<UUID> playersToTeleport, int batchAttempt,
                                              long startTime, int candidateIndex) {
         if (candidateIndex >= candidates.size()) {
             // All candidates failed, try next batch
             plugin.getLogger().info("Batch " + (batchAttempt + 1) + " failed, trying next batch...");
-            findLocationsBatch(world, playersToTeleport, batchAttempt + 1);
+            findLocationsBatch(world, worldConfig, playersToTeleport, batchAttempt + 1);
             return;
         }
 
@@ -191,7 +220,7 @@ public class TeleportManager {
                 teleportPlayersToLocation(playersToTeleport, safeLocation);
             } else {
                 // Try next candidate
-                processCandidatesSequentially(world, candidates, playersToTeleport,
+                processCandidatesSequentially(world, worldConfig, candidates, playersToTeleport,
                                             batchAttempt, startTime, candidateIndex + 1);
             }
         });
@@ -215,9 +244,11 @@ public class TeleportManager {
     private Location findSafeSpotOptimized(World world, int x, int z) {
         ConfigManager cfg = plugin.getConfigManager();
         Set<Material> safeBlocks = cfg.getSafeBlockTypes();
+        boolean isNether = world.getEnvironment() == World.Environment.NETHER;
+        boolean isEnd = world.getEnvironment() == World.Environment.THE_END;
 
-        // Early biome check if enabled
-        if (cfg.isWaterDetectionEnabled() && cfg.isAvoidOceanBiomes()) {
+        // Early biome check if enabled (skip for Nether/End)
+        if (!isNether && !isEnd && cfg.isWaterDetectionEnabled() && cfg.isAvoidOceanBiomes()) {
             if (isOceanBiomeCached(world, x, z)) {
                 return null; // Quick rejection
             }
@@ -228,6 +259,11 @@ public class TeleportManager {
         if (cfg.isSmartHeightScan()) {
             try {
                 startY = world.getHighestBlockYAt(x, z) + 10;
+                
+                // Nether-specific: cap startY to avoid the bedrock roof (max 120)
+                if (isNether) {
+                    startY = Math.min(startY, 120);
+                }
             } catch (Exception e) {
                 // Fallback if we can't get highest block (thread safety issues)
                 startY = world.getMaxHeight() - 1;
@@ -237,14 +273,19 @@ public class TeleportManager {
         }
 
         int endY = Math.max(world.getMinHeight(), world.getSeaLevel() - 10);
+        
+        // Limit vertical scan range to reduce lag
+        int effectiveStart = Math.min(startY, world.getMaxHeight() - 1);
+        int minScan = Math.max(endY, effectiveStart - 64); // don't scan more than 64 blocks vertically
 
         // Scan downwards for safe spot
-        for (int y = Math.min(startY, world.getMaxHeight() - 1); y > endY; y--) {
-            if (isValidTeleportLocation(world, x, y, z, safeBlocks)) {
+        for (int y = effectiveStart; y > minScan; y--) {
+            if (isValidTeleportLocation(world, x, y, z, safeBlocks, isEnd)) {
                 Location potentialLocation = new Location(world, x + 0.5, y + 1, z + 0.5);
 
-                // Water detection (if enabled)
-                if (cfg.isWaterDetectionEnabled()) {
+                // Skip expensive water checks in the Nether (no water exists there)
+                // and in the End to reduce work
+                if (!isNether && !isEnd && cfg.isWaterDetectionEnabled()) {
                     if (!isLocationSafeFromWaterOptimized(world, x, y + 1, z)) {
                         continue;
                     }
@@ -260,9 +301,20 @@ public class TeleportManager {
     /**
      * Optimized validation for teleport location
      */
-    private boolean isValidTeleportLocation(World world, int x, int y, int z, Set<Material> safeBlocks) {
+    private boolean isValidTeleportLocation(World world, int x, int y, int z, Set<Material> safeBlocks, boolean isEnd) {
         // Check ground block
         Material groundMaterial = world.getBlockAt(x, y, z).getType();
+        
+        // Avoid landing on bedrock (Nether roof or other bedrock formations)
+        if (groundMaterial == Material.BEDROCK) {
+            return false;
+        }
+        
+        // End-specific check: prefer end stone as ground to avoid void/air columns
+        if (isEnd && groundMaterial != Material.END_STONE) {
+            return false;
+        }
+        
         if (!safeBlocks.contains(groundMaterial)) {
             return false;
         }
@@ -271,7 +323,17 @@ public class TeleportManager {
         Material feetMaterial = world.getBlockAt(x, y + 1, z).getType();
         Material headMaterial = world.getBlockAt(x, y + 2, z).getType();
 
-        return !feetMaterial.isSolid() && !headMaterial.isSolid();
+        // Reject if feet or head are solid
+        if (feetMaterial.isSolid() || headMaterial.isSolid()) {
+            return false;
+        }
+        
+        // Reject lava at feet (especially important for Nether)
+        if (feetMaterial == Material.LAVA) {
+            return false;
+        }
+
+        return true;
     }
 
     /**

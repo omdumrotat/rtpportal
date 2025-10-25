@@ -1,20 +1,25 @@
 package com.omdmrotat.rtpportal;
 
-import org.bukkit.Material;
-import org.bukkit.configuration.file.FileConfiguration;
-
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
+
+import org.bukkit.Material;
+import org.bukkit.configuration.ConfigurationSection;
+import org.bukkit.configuration.file.FileConfiguration;
 
 public class ConfigManager {
 
     private final RTPPortal plugin;
     private FileConfiguration config;
 
-    private String regionName;
-    private String worldName;
-    private int minX, maxX, minZ, maxZ;
+    // Map to store world configurations: worldKey -> WorldRTPConfig
+    private Map<String, WorldRTPConfig> worldConfigs;
+    // Map region name to world key for quick lookups
+    private Map<String, String> regionToWorld;
+    
     private Set<Material> safeBlockTypes;
     private int teleportTimer;
 
@@ -47,12 +52,38 @@ public class ConfigManager {
         plugin.reloadConfig();
         config = plugin.getConfig();
 
-        regionName = config.getString("region-name", "portal_rtp");
-        worldName = config.getString("teleport-bounds.world", "world");
-        minX = config.getInt("teleport-bounds.x.min", -1000);
-        maxX = config.getInt("teleport-bounds.x.max", 1000);
-        minZ = config.getInt("teleport-bounds.z.min", -1000);
-        maxZ = config.getInt("teleport-bounds.z.max", 1000);
+        worldConfigs = new HashMap<>();
+        regionToWorld = new HashMap<>();
+
+        // Load world configurations
+        ConfigurationSection worldsSection = config.getConfigurationSection("worlds");
+        if (worldsSection != null) {
+            for (String worldKey : worldsSection.getKeys(false)) {
+                ConfigurationSection worldSection = worldsSection.getConfigurationSection(worldKey);
+                if (worldSection != null) {
+                    String regionName = worldSection.getString("region-name");
+                    String worldName = worldSection.getString("teleport-bounds.world");
+                    int minX = worldSection.getInt("teleport-bounds.x.min", -1000);
+                    int maxX = worldSection.getInt("teleport-bounds.x.max", 1000);
+                    int minZ = worldSection.getInt("teleport-bounds.z.min", -1000);
+                    int maxZ = worldSection.getInt("teleport-bounds.z.max", 1000);
+
+                    WorldRTPConfig worldConfig = new WorldRTPConfig(
+                            worldKey, regionName, worldName, minX, maxX, minZ, maxZ
+                    );
+                    worldConfigs.put(worldKey, worldConfig);
+                    regionToWorld.put(regionName.toLowerCase(), worldKey);
+
+                    plugin.getLogger().info("Loaded world config: " + worldKey + 
+                            " (region: " + regionName + ", world: " + worldName + ")");
+                }
+            }
+        }
+
+        if (worldConfigs.isEmpty()) {
+            plugin.getLogger().warning("No world configurations found in config.yml!");
+        }
+
         teleportTimer = config.getInt("teleport-timer", 30);
 
         List<String> materialNames = config.getStringList("safe-block-types");
@@ -86,14 +117,50 @@ public class ConfigManager {
     }
 
     // Getters for all the configuration values
-    public String getRegionName() { return regionName; }
-    public String getWorldName() { return worldName; }
-    public int getMinX() { return minX; }
-    public int getMaxX() { return maxX; }
-    public int getMinZ() { return minZ; }
-    public int getMaxZ() { return maxZ; }
+    public Map<String, WorldRTPConfig> getWorldConfigs() { return worldConfigs; }
+    
+    public WorldRTPConfig getWorldConfigByRegion(String regionName) {
+        String worldKey = regionToWorld.get(regionName.toLowerCase());
+        return worldKey != null ? worldConfigs.get(worldKey) : null;
+    }
+    
+    public WorldRTPConfig getWorldConfig(String worldKey) {
+        return worldConfigs.get(worldKey);
+    }
+    
+    public Set<String> getAllRegionNames() {
+        return regionToWorld.keySet();
+    }
+    
     public Set<Material> getSafeBlockTypes() { return safeBlockTypes; }
     public int getTeleportTimer() { return teleportTimer; }
+    
+    // Inner class to hold world-specific configuration
+    public static class WorldRTPConfig {
+        private final String worldKey;
+        private final String regionName;
+        private final String worldName;
+        private final int minX, maxX, minZ, maxZ;
+
+        public WorldRTPConfig(String worldKey, String regionName, String worldName, 
+                            int minX, int maxX, int minZ, int maxZ) {
+            this.worldKey = worldKey;
+            this.regionName = regionName;
+            this.worldName = worldName;
+            this.minX = minX;
+            this.maxX = maxX;
+            this.minZ = minZ;
+            this.maxZ = maxZ;
+        }
+
+        public String getWorldKey() { return worldKey; }
+        public String getRegionName() { return regionName; }
+        public String getWorldName() { return worldName; }
+        public int getMinX() { return minX; }
+        public int getMaxX() { return maxX; }
+        public int getMinZ() { return minZ; }
+        public int getMaxZ() { return maxZ; }
+    }
 
     // Water detection getters
     public boolean isWaterDetectionEnabled() { return waterDetectionEnabled; }

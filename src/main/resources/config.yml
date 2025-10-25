@@ -1,7 +1,42 @@
-# The name of the WorldGuard region that will act as the portal.
-region-name: "portal_rtp"
+# Multiple world RTP zones configuration
+# Each world can have its own portal region and teleport bounds
+worlds:
+  overworld:
+    # The name of the WorldGuard region that acts as the portal for this world
+    region-name: "portal_rtp"
+    # Teleport bounds for this world
+    teleport-bounds:
+      world: "world"
+      x:
+        min: -1000
+        max: 1000
+      z:
+        min: -1000
+        max: 1000
+  
+  world_nether:
+    region-name: "portal_rtp2"
+    teleport-bounds:
+      world: "world_nether"
+      x:
+        min: -500
+        max: 500
+      z:
+        min: -500
+        max: 500
+  
+  world_the_end:
+    region-name: "portal_rtp3"
+    teleport-bounds:
+      world: "world_the_end"
+      x:
+        min: -1000
+        max: 1000
+      z:
+        min: -1000
+        max: 1000
 
-# Teleport timer settings
+# Teleport timer settings (applies to all portals)
 teleport-timer: 30
 
 # CombatLogX Integration Settings
@@ -15,22 +50,30 @@ combatlogx:
   # false = players in combat stay in portal and can teleport once combat ends
   remove-combat-players: false
 
-# The coordinates for the random teleport.
-teleport-bounds:
-  world: "world"
-  x:
-    min: -1000
-    max: 1000
-  z:
-    min: -1000
-    max: 1000
-
 # The player will only be teleported if the block they land on is one of these types.
+# Includes blocks for Overworld, Nether, and End dimensions
 safe-block-types:
+  # Overworld blocks
   - STONE
   - DIRT
   - GRASS_BLOCK
   - SAND
+  - GRAVEL
+  - SANDSTONE
+  - PODZOL
+  - MYCELIUM
+  - COARSE_DIRT
+  # Nether blocks
+  - NETHERRACK
+  - SOUL_SAND
+  - SOUL_SOIL
+  - CRIMSON_NYLIUM
+  - WARPED_NYLIUM
+  - BASALT
+  - BLACKSTONE
+  - NETHER_BRICKS
+  # End blocks
+  - END_STONE
 
 # Water/Liquid detection settings to prevent teleporting into dangerous areas
 water-detection:

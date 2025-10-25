@@ -1,19 +1,21 @@
 package com.omdmrotat.rtpportal;
 
-import net.kyori.adventure.text.Component;
-import net.kyori.adventure.text.format.NamedTextColor;
-import net.kyori.adventure.title.Title;
-import org.bukkit.Bukkit;
-import org.bukkit.entity.Player;
-
 import java.time.Duration;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.UUID;
+
+import org.bukkit.Bukkit;
+import org.bukkit.entity.Player;
+
 import com.sk89q.worldedit.bukkit.BukkitAdapter;
 import com.sk89q.worldguard.WorldGuard;
 import com.sk89q.worldguard.protection.ApplicableRegionSet;
 import com.sk89q.worldguard.protection.managers.RegionManager;
+
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.title.Title;
 
 
 public class PortalRTPTask implements Runnable {
@@ -39,7 +41,8 @@ public class PortalRTPTask implements Runnable {
         // Send countdown titles only to players who are actually in the portal region
         for (UUID playerUUID : new HashSet<>(plugin.getPlayersInPortal())) {
             Player player = Bukkit.getPlayer(playerUUID);
-            if (player != null && isPlayerInPortalRegion(player)) {
+            String regionName = plugin.getPlayerRegion(playerUUID);
+            if (player != null && regionName != null && isPlayerInPortalRegion(player, regionName)) {
                 sendCountdownTitle(player, currentTime);
             }
         }
@@ -79,7 +82,9 @@ public class PortalRTPTask implements Runnable {
 
         for (UUID playerUUID : plugin.getPlayersInPortal()) {
             Player player = Bukkit.getPlayer(playerUUID);
-            if (player == null || !isPlayerInPortalRegion(player)) {
+            String regionName = plugin.getPlayerRegion(playerUUID);
+            
+            if (player == null || regionName == null || !isPlayerInPortalRegion(player, regionName)) {
                 playersToRemove.add(playerUUID);
             }
         }
@@ -87,6 +92,7 @@ public class PortalRTPTask implements Runnable {
         // Remove players who are no longer valid
         for (UUID playerUUID : playersToRemove) {
             plugin.getPlayersInPortal().remove(playerUUID);
+            plugin.removePlayerRegion(playerUUID);
             Player player = Bukkit.getPlayer(playerUUID);
             if (player != null) {
                 plugin.getLogger().info("Removed " + player.getName() + " from portal - no longer in region.");
@@ -95,9 +101,9 @@ public class PortalRTPTask implements Runnable {
     }
 
     /**
-     * Check if a player is currently in the portal region
+     * Check if a player is currently in the specified portal region
      */
-    private boolean isPlayerInPortalRegion(Player player) {
+    private boolean isPlayerInPortalRegion(Player player, String regionName) {
         try {
             RegionManager regions = WorldGuard.getInstance().getPlatform()
                     .getRegionContainer().get(BukkitAdapter.adapt(player.getWorld()));
@@ -107,9 +113,8 @@ public class PortalRTPTask implements Runnable {
             ApplicableRegionSet regionSet = regions.getApplicableRegions(
                     BukkitAdapter.adapt(player.getLocation()).toVector().toBlockPoint());
 
-            String regionId = plugin.getConfigManager().getRegionName();
             return regionSet.getRegions().stream()
-                    .anyMatch(r -> r.getId().equalsIgnoreCase(regionId));
+                    .anyMatch(r -> r.getId().equalsIgnoreCase(regionName));
         } catch (Exception e) {
             plugin.getLogger().warning("Error checking region for player " + player.getName() + ": " + e.getMessage());
             return false;

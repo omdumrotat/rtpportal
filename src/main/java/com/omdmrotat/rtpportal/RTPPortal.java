@@ -1,17 +1,21 @@
 package com.omdmrotat.rtpportal;
 
-import com.sk89q.worldguard.WorldGuard;
-import io.papermc.paper.threadedregions.scheduler.ScheduledTask;
-import com.sk89q.worldguard.protection.regions.RegionContainer;
-import io.papermc.paper.threadedregions.scheduler.AsyncScheduler;
-import org.bukkit.Bukkit;
-import org.bukkit.plugin.java.JavaPlugin;
-import java.util.concurrent.TimeUnit;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+
+import org.bukkit.plugin.java.JavaPlugin;
+
+import com.sk89q.worldguard.WorldGuard;
+import com.sk89q.worldguard.protection.regions.RegionContainer;
+
+import io.papermc.paper.threadedregions.scheduler.AsyncScheduler;
+import io.papermc.paper.threadedregions.scheduler.ScheduledTask;
 
 public class RTPPortal extends JavaPlugin {
     private ConfigManager configManager;
@@ -21,6 +25,8 @@ public class RTPPortal extends JavaPlugin {
     private static boolean isFolia = false;
 
     private final Set<UUID> playersInPortal = Collections.synchronizedSet(new HashSet<>());
+    // Map to track which region each player is in: UUID -> regionName
+    private final Map<UUID, String> playerRegionMap = Collections.synchronizedMap(new HashMap<>());
     private final AtomicInteger teleportTimer = new AtomicInteger();
 
     private RegionContainer regionContainer;
@@ -83,6 +89,7 @@ public class RTPPortal extends JavaPlugin {
             portalTask.cancel();
         }
         playersInPortal.clear();
+        playerRegionMap.clear();
         getLogger().info("RTPPortal has been disabled.");
     }
 
@@ -96,6 +103,22 @@ public class RTPPortal extends JavaPlugin {
 
     public Set<UUID> getPlayersInPortal() {
         return playersInPortal;
+    }
+    
+    public Map<UUID, String> getPlayerRegionMap() {
+        return playerRegionMap;
+    }
+    
+    public String getPlayerRegion(UUID playerUUID) {
+        return playerRegionMap.get(playerUUID);
+    }
+    
+    public void setPlayerRegion(UUID playerUUID, String regionName) {
+        playerRegionMap.put(playerUUID, regionName);
+    }
+    
+    public void removePlayerRegion(UUID playerUUID) {
+        playerRegionMap.remove(playerUUID);
     }
 
     public AtomicInteger getTeleportTimer() {

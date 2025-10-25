@@ -1,30 +1,29 @@
 package com.omdmrotat.rtpportal;
 
-import com.sk89q.worldedit.bukkit.BukkitAdapter;
-import com.sk89q.worldguard.WorldGuard;
-import com.sk89q.worldguard.protection.ApplicableRegionSet;
-import com.sk89q.worldguard.protection.regions.RegionContainer;
-import com.sk89q.worldguard.protection.managers.RegionManager;
-import net.kyori.adventure.text.Component;
-import net.kyori.adventure.text.format.NamedTextColor;
-import net.kyori.adventure.title.Title;
-import org.bukkit.Location;
+import java.time.Duration;
+
 import org.bukkit.Sound;
 import org.bukkit.entity.Player;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.player.PlayerMoveEvent;
+
 import com.sk89q.worldedit.bukkit.BukkitAdapter;
-import java.time.Duration;
+import com.sk89q.worldguard.WorldGuard;
+import com.sk89q.worldguard.protection.ApplicableRegionSet;
+import com.sk89q.worldguard.protection.managers.RegionManager;
+import com.sk89q.worldguard.protection.regions.RegionContainer;
+
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.title.Title;
 
 public class WorldGuardRegionListener implements Listener {
 
     private final RTPPortal plugin;
 
-    private final String regionId;
     public WorldGuardRegionListener(RTPPortal plugin) {
         this.plugin = plugin;
-        this.regionId = plugin.getConfigManager().getRegionName();
     }
 
     @EventHandler
@@ -47,20 +46,29 @@ public class WorldGuardRegionListener implements Listener {
         ApplicableRegionSet fromSet = regions.getApplicableRegions(BukkitAdapter.adapt(event.getFrom()).toVector().toBlockPoint());
         ApplicableRegionSet toSet = regions.getApplicableRegions(BukkitAdapter.adapt(event.getTo()).toVector().toBlockPoint());
 
-        boolean wasInRegion = fromSet.getRegions().stream().anyMatch(r -> r.getId().equalsIgnoreCase(regionId));
-        boolean isInRegion = toSet.getRegions().stream().anyMatch(r -> r.getId().equalsIgnoreCase(regionId));
+        // Check all configured RTP regions
+        for (String regionName : plugin.getConfigManager().getAllRegionNames()) {
+            boolean wasInRegion = fromSet.getRegions().stream().anyMatch(r -> r.getId().equalsIgnoreCase(regionName));
+            boolean isInRegion = toSet.getRegions().stream().anyMatch(r -> r.getId().equalsIgnoreCase(regionName));
 
-        // Player entered the region
-        if (isInRegion && !wasInRegion) {
-            if (plugin.getPlayersInPortal().add(player.getUniqueId())) {
-                player.playSound(player.getLocation(), Sound.BLOCK_BEACON_POWER_SELECT, 1.0f, 1.0f);
-                sendInitialTitle(player);
+            // Player entered a portal region
+            if (isInRegion && !wasInRegion) {
+                if (plugin.getPlayersInPortal().add(player.getUniqueId())) {
+                    plugin.setPlayerRegion(player.getUniqueId(), regionName);
+                    player.playSound(player.getLocation(), Sound.BLOCK_BEACON_POWER_SELECT, 1.0f, 1.0f);
+                    sendInitialTitle(player, regionName);
+                }
             }
-        }
-        // Player left the region
-        else if (wasInRegion && !isInRegion) {
-            if (plugin.getPlayersInPortal().remove(player.getUniqueId())) {
-                player.playSound(player.getLocation(), Sound.BLOCK_BEACON_POWER_SELECT, 1.0f, 1.0f);
+            // Player left a portal region
+            else if (wasInRegion && !isInRegion) {
+                // Only remove if they were in this specific region
+                String playerCurrentRegion = plugin.getPlayerRegion(player.getUniqueId());
+                if (regionName.equalsIgnoreCase(playerCurrentRegion)) {
+                    if (plugin.getPlayersInPortal().remove(player.getUniqueId())) {
+                        plugin.removePlayerRegion(player.getUniqueId());
+                        player.playSound(player.getLocation(), Sound.BLOCK_BEACON_POWER_SELECT, 1.0f, 1.0f);
+                    }
+                }
             }
         }
     }
@@ -68,8 +76,9 @@ public class WorldGuardRegionListener implements Listener {
     /**
      * Sends the initial countdown title to a player upon entering the portal.
      * @param player The player to send the title to.
+     * @param regionName The region the player entered.
      */
-    private void sendInitialTitle(Player player) {
+    private void sendInitialTitle(Player player, String regionName) {
         int currentTime = plugin.getTeleportTimer().get();
         if (currentTime <= 0) return;
 
